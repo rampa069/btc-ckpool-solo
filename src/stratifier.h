@@ -88,6 +88,16 @@ struct genwork {
 	json_t *json; /* getblocktemplate json */
 };
 
+struct block_accepted
+{
+	char hexhash[68];
+	char username[128];
+	int height;
+	double solve_diff;
+	double sdiff; // share count
+	double bdiff; // percent diff
+};
+
 void parse_remote_txns(ckpool_t *ckp, const json_t *val);
 #define parse_upstream_txns(ckp, val) parse_remote_txns(ckp, val)
 void parse_upstream_auth(ckpool_t *ckp, json_t *val);

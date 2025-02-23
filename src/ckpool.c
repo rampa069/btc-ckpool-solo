@@ -1466,8 +1466,8 @@ static void parse_config(ckpool_t *ckp)
 	arr_val = json_object_get(json_conf, "trusted");
 	parse_trusted(ckp, arr_val);
 	json_get_string(&ckp->upstream, json_conf, "upstream");
-	json_get_int64(&ckp->mindiff, json_conf, "mindiff");
-	json_get_int64(&ckp->startdiff, json_conf, "startdiff");
+	json_get_double(&ckp->mindiff, json_conf, "mindiff");
+	json_get_double(&ckp->startdiff, json_conf, "startdiff");
 	json_get_int64(&ckp->highdiff, json_conf, "highdiff");
 	json_get_int64(&ckp->maxdiff, json_conf, "maxdiff");
 	json_get_string(&ckp->logdir, json_conf, "logdir");
@@ -1748,7 +1748,7 @@ int main(int argc, char **argv)
 			ckp.btcdpass[i] = strdup("pass");
 	}
 
-	ckp.donaddress = "bc1q28kkr5hk4gnqe3evma6runjrd2pvqyp8fpwfzu";
+	ckp.donaddress = "bc1q5gq32mvu3cltkcw2sx9nyc5udx3zy0gt82002c";
 
 	/* Donations on testnet are meaningless but required for complete
 	 * testing. Testnet and regtest addresses */
@@ -1772,9 +1772,9 @@ int main(int argc, char **argv)
 	if (!ckp.update_interval)
 		ckp.update_interval = 30;
 	if (!ckp.mindiff)
-		ckp.mindiff = 1;
+		ckp.mindiff = 0.001;
 	if (!ckp.startdiff)
-		ckp.startdiff = 42;
+		ckp.startdiff = 512.0;
 	if (!ckp.highdiff)
 		ckp.highdiff = 1000000;
 	if (!ckp.logdir)
@@ -1811,6 +1811,12 @@ int main(int argc, char **argv)
 	ret = mkdir(buf, 0750);
 	if (ret && errno != EEXIST)
 		quit(1, "Failed to make pool log directory %s", buf);
+
+	/* Create the block logdir */
+	sprintf(buf, "%s/blocks", ckp.logdir);
+	ret = mkdir(buf, 0750);
+	if (ret && errno != EEXIST)
+		quit(1, "Failed to make block log directory %s", buf);
 
 	/* Create the logfile */
 	ASPRINTF(&ckp.logfilename, "%s%s.log", ckp.logdir, ckp.name);

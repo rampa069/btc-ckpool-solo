@@ -1,3 +1,6 @@
+**btc-ckpool-solo** Forked from https://bitbucket.org/ckolivas/ckpool-solo/, support low hashrate device, for example, [NMMiner](https://github.com/NMminer1024/NMMiner) and NerdMiner devices; add custom difficulty with "d=xxxx" in password
+
+---
 CKPOOL + CKPROXY + libckpool by Con Kolivas
 
 Ultra low overhead massively scalable multi-process, multi-threaded modular
@@ -317,9 +320,9 @@ all of them and ports up to 1024 usually require privileged access.
 "redirecturl" : This is an array of URLs that ckpool will redirect active
 miners to in redirector mode. They must be valid resolvable URLs+ports.
 
-"mindiff" : Minimum diff that vardiff will allow miners to drop to. Default 1
+"mindiff" : Minimum diff that vardiff will allow miners to drop to. Default 0.001
 
-"startdiff" : Starting diff that new clients are given. Default 42
+"startdiff" : Starting diff that new clients are given. Default 512.0, suitable for [NMAxe](https://github.com/NMminer1024/ESP-Miner-NMAxe)
 
 "maxdiff" : Optional maximum diff that vardiff will clamp to where zero is no
 maximum.

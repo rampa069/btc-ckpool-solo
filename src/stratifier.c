@@ -40,6 +40,8 @@ static const char *scriptsig_header = "01000000010000000000000000000000000000000
 static uchar scriptsig_header_bin[41];
 static const double nonces = 4294967296;
 
+struct block_accepted global_block_accepted;
+
 /* Add unaccounted shares when they arrive, remove them with each update of
  * rolling stats. */
 struct pool_stats {
@@ -54,8 +56,8 @@ struct pool_stats {
 	int remote_users;
 
 	/* Absolute shares stats */
-	int64_t unaccounted_shares;
-	int64_t accounted_shares;
+	double unaccounted_shares;
+	double accounted_shares;
 
 	/* Cycle of 32 to determine which users to dump stats on */
 	uint8_t userstats_cycle;
@@ -67,10 +69,10 @@ struct pool_stats {
 	double sps60;
 
 	/* Diff shares stats */
-	int64_t unaccounted_diff_shares;
-	int64_t accounted_diff_shares;
-	int64_t unaccounted_rejects;
-	int64_t accounted_rejects;
+	double unaccounted_diff_shares;
+	double accounted_diff_shares;
+	double unaccounted_rejects;
+	double accounted_rejects;
 
 	/* Diff shares per second for 1/5/15... minute rolling averages */
 	double dsps1;
@@ -82,7 +84,7 @@ struct pool_stats {
 	double dsps10080;
 
 	double network_diff;
-	int64_t best_diff;
+	double best_diff;
 };
 
 typedef struct pool_stats pool_stats_t;
@@ -145,9 +147,9 @@ struct user_instance {
 	struct userwb *userwbs; /* Protected by instance lock */
 
 	double best_diff; /* Best share found by this user */
-	int64_t best_ever; /* Best share ever found by this user */
+	double best_ever; /* Best share ever found by this user */
 
-	int64_t shares;
+	double shares;
 
 	int64_t uadiff; /* Shares not yet accounted for in hashmeter */
 
@@ -177,7 +179,7 @@ struct worker_instance {
 	worker_instance_t *next;
 	worker_instance_t *prev;
 
-	int64_t shares;
+	double shares;
 
 	int64_t uadiff; /* Shares not yet accounted for in hashmeter */
 
@@ -191,7 +193,7 @@ struct worker_instance {
 	time_t start_time;
 
 	double best_diff; /* Best share found by this worker */
-	int64_t best_ever; /* Best share ever found by this worker */
+	double best_ever; /* Best share ever found by this worker */
 	int mindiff; /* User chosen mindiff */
 
 	bool idle;
@@ -235,8 +237,8 @@ struct stratum_instance {
 	uint64_t enonce1_64;
 	int session_id;
 
-	int64_t diff; /* Current diff */
-	int64_t old_diff; /* Previous diff */
+	double diff; /* Current diff */
+	double old_diff; /* Previous diff */
 	int64_t diff_change_job_id; /* Last job_id we changed diff */
 
 	int64_t uadiff; /* Shares not yet accounted for in hashmeter */
@@ -247,7 +249,7 @@ struct stratum_instance {
 	double dsps1440;
 	double dsps10080;
 	tv_t ldc; /* Last diff change */
-	int ssdc; /* Shares since diff change */
+	double ssdc; /* Shares since diff change */
 	tv_t first_share;
 	tv_t last_share;
 	tv_t last_decay;
@@ -286,7 +288,7 @@ struct stratum_instance {
 	time_t last_txns; /* Last time this worker requested txn hashes */
 	time_t disconnected_time; /* Time this instance disconnected */
 
-	int64_t suggest_diff; /* Stratum client suggested diff */
+	double suggest_diff; /* Stratum client suggested diff */
 	double best_diff; /* Best share found by this instance */
 
 	sdata_t *sdata; /* Which sdata this client is bound to */
@@ -3122,8 +3124,8 @@ static void update_diff(ckpool_t *ckp, const char *cmd)
 
 	/* We only really care about integer diffs so clamp the lower limit to
 	 * 1 or it will round down to zero. */
-	if (unlikely(diff < 1))
-		diff = 1;
+	// if (unlikely(diff < 1))
+	// 	diff = 1;
 
 	dsdata = proxy->sdata;
 
@@ -3720,7 +3722,7 @@ static json_t *user_stats(const user_instance_t *user)
 	ghs = user->dsps10080 * nonces;
 	suffix_string(ghs, suffix10080, 16, 0);
 
-	JSON_CPACK(val, "{ss,ss,ss,ss,ss,sI,sI}",
+	JSON_CPACK(val, "{ss,ss,ss,ss,ss,sf,sI}",
 			"hashrate1m", suffix1,
 			"hashrate5m", suffix5,
 			"hashrate1hr", suffix60,
@@ -3762,6 +3764,37 @@ static void block_share_summary(sdata_t *sdata)
 	bdiff = sdiff / sdata->current_workbase->network_diff * 100;
 	LOGWARNING("Block solved after %.0lf shares at %.1f%% diff",
 		   sdiff, bdiff);
+	global_block_accepted.bdiff = bdiff;
+	global_block_accepted.sdiff = sdiff;
+}
+
+static void block_solved_summary(ckpool_t *ckp)
+{
+	json_t *json_msg;
+	char *s, *fname;
+	FILE *fp;
+
+	JSON_CPACK(json_msg, "{s:s, s:s, s:i, s:f, s:f, s:f}",
+		   "hexhash", global_block_accepted.hexhash,
+		   "username", global_block_accepted.username,
+		   "height", global_block_accepted.height,
+		   "solvediff", global_block_accepted.solve_diff,
+		   "sdiff", global_block_accepted.sdiff,
+		   "bdiff", global_block_accepted.bdiff);
+	
+	s = json_dumps(json_msg, JSON_NO_UTF8 | JSON_PRESERVE_ORDER);
+	json_decref(json_msg);
+
+	ASPRINTF(&fname, "%s/blocks/%s", ckp->logdir, global_block_accepted.hexhash);
+	fp = fopen(fname, "we");
+	if (unlikely(!fp))
+		LOGERR("Failed to fopen %s", fname);
+	dealloc(fname);
+
+	LOGWARNING("%s", s);
+	fprintf(fp, "%s\n", s);
+	dealloc(s);
+	fclose(fp);
 }
 
 static void block_solve(ckpool_t *ckp, json_t *val)
@@ -3793,6 +3826,8 @@ static void block_solve(ckpool_t *ckp, json_t *val)
 		char *s;
 
 		ASPRINTF(&msg, "Block %d solved by %s @ %s!", height, workername, ckp->name);
+		global_block_accepted.height = height;
+		memcpy(global_block_accepted.username, workername, strlen(workername) + 1);
 		LOGWARNING("Solved and confirmed block %d by %s", height, workername);
 		user = user_by_workername(sdata, workername);
 		worker = get_worker(sdata, user, workername);
@@ -3817,6 +3852,7 @@ static void block_solve(ckpool_t *ckp, json_t *val)
 	free(workername);
 
 	block_share_summary(sdata);
+	block_solved_summary(ckp);
 	reset_bestshares(sdata);
 }
 
@@ -5202,14 +5238,14 @@ static void read_userstats(ckpool_t *ckp, sdata_t *sdata, int tvsec_diff)
 		user->dsps10080 = dsps_from_key(val, "hashrate7d");
 		json_get_int(&lastshare, val, "lastshare");
 		user->last_share.tv_sec = lastshare;
-		json_get_int64(&user->shares, val, "shares");
+		json_get_double(&user->shares, val, "shares");
 		json_get_double(&user->best_diff, val, "bestshare");
-		json_get_int64(&user->best_ever, val, "bestever");
+		json_get_double(&user->best_ever, val, "bestever");
 		json_get_int64(&authorised, val, "authorised");
 		user->auth_time = authorised;
 		if (user->best_diff > user->best_ever)
 			user->best_ever = user->best_diff;
-		LOGINFO("Successfully read user %s stats %f %f %f %f %f %f %ld %ld", user->username,
+		LOGINFO("Successfully read user %s stats %f %f %f %f %f %f %f %ld", user->username,
 			user->dsps1, user->dsps5, user->dsps60, user->dsps1440,
 			user->dsps10080, user->best_diff, user->best_ever, user->auth_time);
 		if (tvsec_diff > 60)
@@ -5241,11 +5277,11 @@ static void read_userstats(ckpool_t *ckp, sdata_t *sdata, int tvsec_diff)
 			json_get_int(&lastshare, arr_val, "lastshare");
 			worker->last_share.tv_sec = lastshare;
 			json_get_double(&worker->best_diff, arr_val, "bestshare");
-			json_get_int64(&worker->best_ever, arr_val, "bestever");
+			json_get_double(&worker->best_ever, arr_val, "bestever");
 			if (worker->best_diff > worker->best_ever)
 				worker->best_ever = worker->best_diff;
-			json_get_int64(&worker->shares, arr_val, "shares");
-			LOGINFO("Successfully read worker %s stats %f %f %f %f %f %ld", worker->workername,
+			json_get_double(&worker->shares, arr_val, "shares");
+			LOGINFO("Successfully read worker %s stats %f %f %f %f %f %f", worker->workername,
 				worker->dsps1, worker->dsps5, worker->dsps60, worker->dsps1440, worker->best_diff, worker->best_ever);
 			if (tvsec_diff > 60)
 				decay_worker(worker, 0, &now);
@@ -5506,8 +5542,21 @@ static json_t *parse_authorise(stratum_instance_t *client, const json_t *params_
 	/* NOTE workername is NULL prior to this so should not be used in code
 	 * till after this point */
 	client->workername = strdup(buf);
-	if (pass)
+	if (pass) {
 		client->password = strndup(pass, 64);
+		if(strncmp(client->password, "d=", 2) == 0) {
+			char *endptr;
+			double new_diff = strtod(pass+2, &endptr);
+			if(*endptr == '\0' && new_diff >0) {
+				client->diff = new_diff;
+				client->suggest_diff = new_diff;
+				LOGINFO("updated proxy difficulty to %f", new_diff);
+			}
+			else {
+				LOGWARNING("Failed to parse difficulty from pass %s", pass);
+			}
+		}
+	}
 	else
 		client->password = strdup("");
 	if (user->failed_authtime) {
@@ -5564,7 +5613,7 @@ static void stratum_send_diff(sdata_t *sdata, const stratum_instance_t *client)
 {
 	json_t *json_msg;
 
-	JSON_CPACK(json_msg, "{s[I]soss}", "params", client->diff, "id", json_null(),
+	JSON_CPACK(json_msg, "{s[f]soss}", "params", client->diff, "id", json_null(),
 			     "method", "mining.set_difficulty");
 	stratum_add_send(sdata, json_msg, client->id, SM_DIFF);
 }
@@ -5598,23 +5647,23 @@ static void add_submit(ckpool_t *ckp, stratum_instance_t *client, const double d
 {
 	sdata_t *ckp_sdata = ckp->sdata, *sdata = client->sdata;
 	worker_instance_t *worker = client->worker_instance;
-	double tdiff, bdiff, dsps, drr, network_diff, bias;
+	double tdiff, bdiff, dsps, drr, network_diff, bias, optimal;
 	user_instance_t *user = client->user_instance;
-	int64_t next_blockid, optimal, mindiff;
+	int64_t next_blockid, mindiff;
 	tv_t now_t;
 
 	mutex_lock(&ckp_sdata->uastats_lock);
 	if (valid) {
 		ckp_sdata->stats.unaccounted_shares++;
-		ckp_sdata->stats.unaccounted_diff_shares += diff;
+		ckp_sdata->stats.unaccounted_diff_shares += MAX(1, diff);
 	} else
-		ckp_sdata->stats.unaccounted_rejects += diff;
+		ckp_sdata->stats.unaccounted_rejects += MAX(1, diff);
 	mutex_unlock(&ckp_sdata->uastats_lock);
 
 	/* Count only accepted and stale rejects in diff calculation. */
 	if (valid) {
-		worker->shares += diff;
-		user->shares += diff;
+		worker->shares += MAX(1, diff);
+		user->shares += MAX(1, diff);
 	} else if (!submit)
 		return;
 
@@ -5716,7 +5765,7 @@ static void add_submit(ckpool_t *ckp, stratum_instance_t *client, const double d
 
 	client->ssdc = 0;
 
-	LOGINFO("Client %s biased dsps %.2f dsps %.2f drr %.2f adjust diff from %"PRId64" to: %"PRId64" ",
+	LOGINFO("Client %s biased dsps %.2f dsps %.2f drr %.2f adjust diff from %lf to: %lf ",
 		client->identity, dsps, client->dsps5, drr, client->diff, optimal);
 
 	copy_tv(&client->ldc, &now_t);
@@ -5766,12 +5815,16 @@ test_blocksolve(const stratum_instance_t *client, const workbase_t *wb, const uc
 	if (!ckp->node && wb->proxy)
 		return;
 
+	global_block_accepted.solve_diff = diff;
+
 	ts_realtime(&ts_now);
 	sprintf(cdfield, "%lu,%lu", ts_now.tv_sec, ts_now.tv_nsec);
 
 	gbt_block = process_block(wb, coinbase, cblen, data, hash, flip32, blockhash);
 	send_node_block(ckp, sdata, client->enonce1, nonce, nonce2, ntime32, version_mask,
 			wb->id, diff, client->id, coinbase, cblen, data);
+
+	memcpy(global_block_accepted.hexhash, blockhash, 68);
 
 	val = json_object();
 	json_set_int(val, "height", wb->height);
@@ -6131,7 +6184,7 @@ static json_t *parse_submit(stratum_instance_t *client, json_t *json_msg,
 		worker_instance_t *worker = client->worker_instance;
 
 		client->best_diff = sdiff;
-		LOGINFO("User %s worker %s client %s new best diff %lf", user->username,
+		LOGINFO("User %s worker %s client %s new best diff %.10g", user->username,
 			worker->workername, client->identity, sdiff);
 		check_best_diff(sdata, user, worker, sdiff, client);
 	}
@@ -6186,7 +6239,7 @@ out_nowb:
 		suffix_string(wdiff, wdiffsuffix, 16, 0);
 		if (sdiff >= diff) {
 			if (new_share(sdata, hash, id)) {
-				LOGINFO("Accepted client %s share diff %.1f/%.0f/%s: %s",
+				LOGINFO("Accepted client %s share diff %.10f/%.0f/%s: %s",
 					client->identity, sdiff, diff, wdiffsuffix, hexhash);
 				result = true;
 			} else {
@@ -6904,11 +6957,11 @@ static void parse_remote_share(ckpool_t *ckp, sdata_t *sdata, json_t *val, const
 
 	mutex_lock(&sdata->uastats_lock);
 	sdata->stats.unaccounted_shares++;
-	sdata->stats.unaccounted_diff_shares += diff;
+	sdata->stats.unaccounted_diff_shares += MAX(1, diff);
 	mutex_unlock(&sdata->uastats_lock);
 
-	worker->shares += diff;
-	user->shares += diff;
+	worker->shares += MAX(1, diff);
+	user->shares += MAX(1, diff);
 	tv_time(&now_t);
 
 	decay_worker(worker, diff, &now_t);
@@ -8022,13 +8075,13 @@ static void *statsupdate(void *arg)
 			ghs = user->dsps10080 * nonces;
 			suffix_string(ghs, suffix10080, 16, 0);
 
-			JSON_CPACK(val, "{ss,ss,ss,ss,ss,si,si,sI,sf,sI, sI}",
+			JSON_CPACK(val, "{ss,ss,ss,ss,ss,si,si,sf,sf,sf, sI}",
 					"hashrate1m", suffix1,
 					"hashrate5m", suffix5,
 					"hashrate1hr", suffix60,
 					"hashrate1d", suffix1440,
 					"hashrate7d", suffix10080,
-				        "lastshare", user->last_share.tv_sec,
+				    	"lastshare", user->last_share.tv_sec,
 					"workers", user->workers + user->remote_workers,
 					"shares", user->shares,
 					"bestshare", user->best_diff,
@@ -8086,7 +8139,7 @@ static void *statsupdate(void *arg)
 
 				LOGDEBUG("Storing worker %s", worker->workername);
 
-				JSON_CPACK(wval, "{ss,ss,ss,ss,ss,ss,si,sI,sf,sI}",
+				JSON_CPACK(wval, "{ss,ss,ss,ss,ss,ss,si,sf,sf,sf}",
 						"workername", worker->workername,
 						"hashrate1m", suffix1,
 						"hashrate5m", suffix5,
@@ -8177,7 +8230,7 @@ static void *statsupdate(void *arg)
 
 		/* Round to 4 significant digits */
 		percent = round(stats->accounted_diff_shares * 10000 / stats->network_diff) / 100;
-		JSON_CPACK(val, "{sf,sI,sI,sI,sf,sf,sf,sf}",
+		JSON_CPACK(val, "{sf,sf,sf,sf,sf,sf,sf,sf,sf}",
 			        "diff", percent,
 				"accepted", stats->accounted_diff_shares,
 				"rejected", stats->accounted_rejects,
@@ -8185,8 +8238,9 @@ static void *statsupdate(void *arg)
 				"SPS1m", stats->sps1,
 				"SPS5m", stats->sps5,
 				"SPS15m", stats->sps15,
-				"SPS1h", stats->sps60);
-		s = json_dumps(val, JSON_NO_UTF8 | JSON_PRESERVE_ORDER | JSON_REAL_PRECISION(3));
+				"SPS1h", stats->sps60,
+				"netdiff", stats->network_diff);
+		s = json_dumps(val, JSON_NO_UTF8 | JSON_PRESERVE_ORDER | JSON_REAL_PRECISION(6));
 		json_decref(val);
 		LOGNOTICE("Pool:%s", s);
 		fprintf(fp, "%s\n", s);
@@ -8377,9 +8431,9 @@ static void read_poolstats(ckpool_t *ckp, int *tvsec_diff)
 	json_get_double(&stats->sps5, val, "SPS5m");
 	json_get_double(&stats->sps15, val, "SPS15m");
 	json_get_double(&stats->sps60, val, "SPS1h");
-	json_get_int64(&stats->accounted_diff_shares, val, "accepted");
-	json_get_int64(&stats->accounted_rejects, val, "rejected");
-	json_get_int64(&stats->best_diff, val, "bestshare");
+	json_get_double(&stats->accounted_diff_shares, val, "accepted");
+	json_get_double(&stats->accounted_rejects, val, "rejected");
+	json_get_double(&stats->best_diff, val, "bestshare");
 	json_decref(val);
 
 	LOGINFO("Successfully read pool sps: %s", sps);
@@ -8492,6 +8546,7 @@ static void *zmqnotify(void *arg)
 				case 32:
 					update_base(sdata, GEN_PRIORITY);
 					__bin2hex(hexhash, zmq_msg_data(&message), 32);
+					memcpy(global_block_accepted.hexhash, hexhash, 68);
 					LOGNOTICE("ZMQ block hash %s", hexhash);
 					break;
 				default:
