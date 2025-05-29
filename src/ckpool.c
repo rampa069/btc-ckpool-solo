@@ -19,6 +19,9 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#ifndef __APPLE__
+#include <sys/prctl.h>
+#endif
 #include <ctype.h>
 #include <fenv.h>
 #include <getopt.h>

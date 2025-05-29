@@ -288,20 +288,13 @@ static inline int epoll_wait(int epfd, struct epoll_event *events,
     return n;
 }
 
+// Implementación de prctl para macOS
 static inline int prctl(int option, const char* arg2, unsigned long arg3, 
                        unsigned long arg4, unsigned long arg5) {
-    (void)arg3;
-    (void)arg4;
-    (void)arg5;
-    
     if (option == PR_SET_NAME) {
+        // En macOS usamos pthread_setname_np para cambiar el nombre del proceso
         return pthread_setname_np(arg2);
     }
-    if (option == PR_GET_NAME) {
-        return pthread_getname_np(pthread_self(), (char*)arg2, 16);
-    }
-    
-    errno = EINVAL;
     return -1;
 }
 
