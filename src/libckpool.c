@@ -7,6 +7,14 @@
  * any later version.  See COPYING for more details.
  */
 
+#ifdef __APPLE__
+#include "pre_compat.h"
+#endif
+
+#ifndef __APPLE__
+#include <sys/epoll.h>
+#endif
+
 #include "config.h"
 
 #include <sys/types.h>

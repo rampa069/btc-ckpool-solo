@@ -7,6 +7,14 @@
  * any later version.  See COPYING for more details.
  */
 
+#ifdef __APPLE__
+#include "pre_compat.h"
+#endif
+
+#ifndef __APPLE__
+#include <sys/epoll.h>
+#endif
+
 #include "config.h"
 
 #include "compat.h"
@@ -15,10 +23,6 @@
 #include <string.h>
 #include <unistd.h>
 #include <fcntl.h>  // Para O_CLOEXEC y FD_CLOEXEC
-
-#ifndef __APPLE__
-#include <sys/epoll.h>
-#endif
 
 #include "ckpool.h"
 #include "libckpool.h"
