@@ -7,10 +7,14 @@
  * any later version.  See COPYING for more details.
  */
 
+#ifdef __APPLE__
+#include "pre_compat.h"
+#endif
+
 #include "config.h"
+#include "compat.h"
 
 #include <sys/ioctl.h>
-#include <sys/prctl.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -31,6 +35,10 @@
 #include "generator.h"
 #include "stratifier.h"
 #include "connector.h"
+
+#ifndef __APPLE__
+#include <fenv.h>
+#endif
 
 ckpool_t *global_ckp;
 

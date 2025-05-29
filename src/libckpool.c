@@ -16,9 +16,8 @@
 #else
 #include <sys/un.h>
 #endif
-#include <sys/epoll.h>
+#include "compat.h"
 #include <sys/file.h>
-#include <sys/prctl.h>
 #include <sys/stat.h>
 #include <netdb.h>
 #include <unistd.h>
@@ -32,6 +31,10 @@
 #include <math.h>
 #include <poll.h>
 #include <arpa/inet.h>
+
+#ifdef __APPLE__
+#include "macos_sem.h"
+#endif
 
 #include "libckpool.h"
 #include "sha2.h"
@@ -80,7 +83,7 @@ void join_pthread(pthread_t thread)
 }
 
 struct ck_completion {
-	sem_t sem;
+	CK_SEM_TYPE sem;
 	void (*fn)(void *fnarg);
 	void *fnarg;
 };
@@ -90,7 +93,7 @@ static void *completion_thread(void *arg)
 	struct ck_completion *ckc = (struct ck_completion *)arg;
 
 	ckc->fn(ckc->fnarg);
-	cksem_post(&ckc->sem);
+	CK_SEM_POST(&ckc->sem);
 
 	return NULL;
 }
@@ -101,7 +104,7 @@ bool ck_completion_timeout(void *fn, void *fnarg, int timeout)
 	pthread_t pthread;
 	bool ret = false;
 
-	cksem_init(&ckc.sem);
+	CK_SEM_INIT(&ckc.sem, 0, 0);
 	ckc.fn = fn;
 	ckc.fnarg = fnarg;
 
@@ -377,38 +380,38 @@ void cklock_destroy(cklock_t *lock)
 }
 
 
-void _cksem_init(sem_t *sem, const char *file, const char *func, const int line)
+void _cksem_init(CK_SEM_TYPE *sem, const char *file, const char *func, const int line)
 {
 	int ret;
-	if ((ret = sem_init(sem, 0, 0)))
+	if ((ret = CK_SEM_INIT(sem, 0, 0)))
 		quitfrom(1, file, func, line, "Failed to sem_init ret=%d errno=%d", ret, errno);
 }
 
-void _cksem_post(sem_t *sem, const char *file, const char *func, const int line)
+void _cksem_post(CK_SEM_TYPE *sem, const char *file, const char *func, const int line)
 {
-	if (unlikely(sem_post(sem)))
+	if (unlikely(CK_SEM_POST(sem)))
 		quitfrom(1, file, func, line, "Failed to sem_post errno=%d sem=0x%p", errno, sem);
 }
 
-void _cksem_wait(sem_t *sem, const char *file, const char *func, const int line)
+void _cksem_wait(CK_SEM_TYPE *sem, const char *file, const char *func, const int line)
 {
-	if (unlikely(sem_wait(sem))) {
+	if (unlikely(CK_SEM_WAIT(sem))) {
 		if (errno == EINTR)
 			return;
 		quitfrom(1, file, func, line, "Failed to sem_wait errno=%d sem=0x%p", errno, sem);
 	}
 }
 
-int _cksem_trywait(sem_t *sem, const char *file, const char *func, const int line)
+int _cksem_trywait(CK_SEM_TYPE *sem, const char *file, const char *func, const int line)
 {
-	int ret = sem_trywait(sem);
+	int ret = CK_SEM_TRYWAIT(sem);
 
 	if (unlikely(ret && errno != EAGAIN && errno != EINTR))
 		quitfrom(1, file, func, line, "Failed to sem_trywait errno=%d sem=0x%p", errno, sem);
 	return ret;
 }
 
-int _cksem_mswait(sem_t *sem, int ms, const char *file, const char *func, const int line)
+int _cksem_mswait(CK_SEM_TYPE *sem, int ms, const char *file, const char *func, const int line)
 {
 	ts_t abs_timeout, ts_now;
 	tv_t tv_now;
@@ -418,7 +421,7 @@ int _cksem_mswait(sem_t *sem, int ms, const char *file, const char *func, const 
 	tv_to_ts(&ts_now, &tv_now);
 	ms_to_ts(&abs_timeout, ms);
 	timeraddspec(&abs_timeout, &ts_now);
-	ret = sem_timedwait(sem, &abs_timeout);
+	ret = CK_SEM_TIMEDWAIT(sem, &abs_timeout);
 
 	if (ret) {
 		if (likely(errno == ETIMEDOUT))
@@ -430,10 +433,10 @@ int _cksem_mswait(sem_t *sem, int ms, const char *file, const char *func, const 
 	return 0;
 }
 
-void _cksem_destroy(sem_t *sem, const char *file, const char *func, const int line)
+void _cksem_destroy(CK_SEM_TYPE *sem, const char *file, const char *func, const int line)
 {
 
-	if (unlikely(sem_destroy(sem)))
+	if (unlikely(CK_SEM_DESTROY(sem)))
 		quitfrom(1, file, func, line, "Failed to sem_destroy errno=%d sem=0x%p", errno, sem);
 }
 

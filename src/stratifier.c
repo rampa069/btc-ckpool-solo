@@ -24,6 +24,8 @@
 #include <zmq.h>
 #endif
 
+
+#include "compat.h"
 #include "ckpool.h"
 #include "libckpool.h"
 #include "bitcoin.h"
@@ -8264,7 +8266,7 @@ static void *statsupdate(void *arg)
 
 			mutex_lock(&sdata->proxy_lock);
 			HASH_ITER(hh, sdata->proxies, proxy, proxytmp) {
-				JSON_CPACK(val, "{sI,si,sI,sb}",
+				JSON_CPACK(val, "{sI,si,si,sI,sI,sf,sb}",
 					   "id", proxy->id,
 					   "subproxies", proxy->subproxy_count,
 					   "clients", proxy->combined_clients,

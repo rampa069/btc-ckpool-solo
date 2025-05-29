@@ -19,6 +19,10 @@
 #include "libckpool.h"
 #include "uthash.h"
 
+#ifdef __APPLE__
+#include "macos_sem.h"
+#endif
+
 #define RPC_TIMEOUT 60
 
 struct ckpool_instance;
@@ -87,7 +91,7 @@ struct connsock {
 
 	ckpool_t *ckp;
 	/* Semaphore used to serialise request/responses */
-	sem_t sem;
+	CK_SEM_TYPE sem;
 
 	bool alive;
 };
@@ -400,5 +404,11 @@ static inline int64_t subclient(const int64_t client_id)
 {
 	return (client_id >> 32);
 }
+
+#ifndef __APPLE__
+#define CK_SEM_TYPE sem_t
+#else
+#define CK_SEM_TYPE macos_sem_t
+#endif
 
 #endif /* CKPOOL_H */

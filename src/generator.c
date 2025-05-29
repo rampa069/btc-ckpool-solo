@@ -9,11 +9,12 @@
 
 #include "config.h"
 
-#include <sys/epoll.h>
+#include "compat.h"
 #include <sys/socket.h>
 #include <jansson.h>
 #include <string.h>
 #include <unistd.h>
+#include <fcntl.h>  // Para O_CLOEXEC y FD_CLOEXEC
 
 #include "ckpool.h"
 #include "libckpool.h"

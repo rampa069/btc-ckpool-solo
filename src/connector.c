@@ -11,7 +11,6 @@
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
-#include <sys/epoll.h>
 #include <sys/socket.h>
 #include <string.h>
 #include <unistd.h>
@@ -22,6 +21,7 @@
 #include "utlist.h"
 #include "stratifier.h"
 #include "generator.h"
+#include "compat.h"
 
 #define MAX_MSGSIZE 1024
 

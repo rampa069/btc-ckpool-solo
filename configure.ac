@@ -74,7 +74,6 @@ JANSSON_LIBS="jansson-2.14/src/.libs/libjansson.a"
 
 AC_SUBST(JANSSON_LIBS)
 
-AC_SEARCH_LIBS(clock_nanosleep, rt, , echo "Error: Required library rt not found." && exit 1)
 AC_SEARCH_LIBS(exp, m, , echo "Error: Required library math not found." && exit 1)
 AC_SEARCH_LIBS(pthread_mutex_trylock, pthread, , echo "Error: Required library pthreads not found." && exit 1)
 AC_SEARCH_LIBS(zmq_socket, zmq, ZMQ=yes, ZMQ=no)

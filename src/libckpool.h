@@ -470,12 +470,33 @@ void _ck_runlock(cklock_t *lock, const char *file, const char *func, const int l
 void _ck_wunlock(cklock_t *lock, const char *file, const char *func, const int line);
 void cklock_destroy(cklock_t *lock);
 
-void _cksem_init(sem_t *sem, const char *file, const char *func, const int line);
-void _cksem_post(sem_t *sem, const char *file, const char *func, const int line);
-void _cksem_wait(sem_t *sem, const char *file, const char *func, const int line);
-int _cksem_trywait(sem_t *sem, const char *file, const char *func, const int line);
-int _cksem_mswait(sem_t *sem, int ms, const char *file, const char *func, const int line);
-void _cksem_destroy(sem_t *sem, const char *file, const char *func, const int line);
+#ifdef __APPLE__
+#include "macos_sem.h"
+#endif
+#ifndef __APPLE__
+#define CK_SEM_TYPE sem_t
+#define CK_SEM_INIT sem_init
+#define CK_SEM_DESTROY sem_destroy
+#define CK_SEM_WAIT sem_wait
+#define CK_SEM_TRYWAIT sem_trywait
+#define CK_SEM_POST sem_post
+#define CK_SEM_TIMEDWAIT sem_timedwait
+#else
+#define CK_SEM_TYPE macos_sem_t
+#define CK_SEM_INIT macos_sem_init
+#define CK_SEM_DESTROY macos_sem_destroy
+#define CK_SEM_WAIT macos_sem_wait
+#define CK_SEM_TRYWAIT macos_sem_trywait
+#define CK_SEM_POST macos_sem_post
+#define CK_SEM_TIMEDWAIT macos_sem_timedwait
+#endif
+
+void _cksem_init(CK_SEM_TYPE *sem, const char *file, const char *func, const int line);
+void _cksem_post(CK_SEM_TYPE *sem, const char *file, const char *func, const int line);
+void _cksem_wait(CK_SEM_TYPE *sem, const char *file, const char *func, const int line);
+int _cksem_trywait(CK_SEM_TYPE *sem, const char *file, const char *func, const int line);
+int _cksem_mswait(CK_SEM_TYPE *sem, int ms, const char *file, const char *func, const int line);
+void _cksem_destroy(CK_SEM_TYPE *sem, const char *file, const char *func, const int line);
 
 #define cksem_init(SEM) _cksem_init(SEM, __FILE__, __func__, __LINE__)
 #define cksem_post(SEM) _cksem_post(SEM, __FILE__, __func__, __LINE__)
