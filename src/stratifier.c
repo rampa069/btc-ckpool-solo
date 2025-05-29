@@ -8298,19 +8298,24 @@ static void *statsupdate(void *arg)
 
 		ts_realtime(&ts_now);
 		sprintf(cdfield, "%lu,%lu", ts_now.tv_sec, ts_now.tv_nsec);
-		JSON_CPACK(val, "{ss,si,si,si,sf,sf,sf,sf,ss,ss,ss,ss}",
-				"poolinstance", ckp->name,
-				"elapsed", diff.tv_sec,
-				"users", stats->users + stats->remote_users,
-				"workers", stats->workers + stats->remote_workers,
-				"hashrate", ghs1,
-				"hashrate5m", ghs5,
-				"hashrate1hr", ghs60,
-				"hashrate24hr", ghs1440,
-				"createdate", cdfield,
-				"createby", "code",
-				"createcode", __func__,
-				"createinet", ckp->serverurl[0]);
+
+	LOGINFO("ckp->name: %s", ckp->name ? ckp->name : "(null)");
+	LOGINFO("cdfield: %s", cdfield);
+	LOGINFO("ckp->serverurl[0]: %s", ckp->serverurl[0] ? ckp->serverurl[0] : "(null)");
+
+	JSON_CPACK(val, "{ss,si,si,si,sf,sf,sf,sf,ss,ss,ss,ss}",
+		"poolinstance", ckp->name ? ckp->name : "(null)",
+		"elapsed", diff.tv_sec,
+		"users", stats->users + stats->remote_users,
+		"workers", stats->workers + stats->remote_workers,
+		"hashrate", ghs1,
+		"hashrate5m", ghs5,
+		"hashrate1hr", ghs60,
+		"hashrate24hr", ghs1440,
+		"createdate", cdfield,
+		"createby", "code",
+		"createcode", __func__,
+		"createinet", ckp->serverurl[0] ? ckp->serverurl[0] : "(null)");
 		json_decref(val);
 
 		/* Update stats 32 times per minute to divide up userstats,
