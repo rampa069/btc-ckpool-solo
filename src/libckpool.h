@@ -345,8 +345,10 @@ void _json_check(json_t *val, json_error_t *err, const char *file, const char *f
 /* Check and pack json */
 #define JSON_CPACK(VAL, ...) do { \
 	json_error_t ERR; \
-	VAL = json_pack_ex(&ERR, 0, ##__VA_ARGS__); \
-	json_check(VAL, &ERR); \
+	VAL = json_pack(__VA_ARGS__); \
+	if (unlikely(!VAL)) { \
+		LOGERR("Invalid json from %s %s:%d", __FILE__, __func__, __LINE__); \
+	} \
 } while (0)
 
 /* No error checking with these, make sure we know they're valid already! */
