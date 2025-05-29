@@ -2342,150 +2342,142 @@ static bool subproxies_alive(proxy_instance_t *proxy)
  * up the connection and testing it's alive. */
 static void *proxy_recv(void *arg)
 {
-	proxy_instance_t *proxi = (proxy_instance_t *)arg;
-	connsock_t *cs = &proxi->cs;
-	proxy_instance_t *subproxy;
-	ckpool_t *ckp = proxi->ckp;
-	gdata_t *gdata = ckp->gdata;
-	struct epoll_event event;
-	bool alive;
-	int epfd;
+        proxy_instance_t *proxi = (proxy_instance_t *)arg;
+        connsock_t *cs = &proxi->cs;
+        proxy_instance_t *subproxy;
+        ckpool_t *ckp = proxi->ckp;
+        gdata_t *gdata = ckp->gdata;
+        struct epoll_event event;
+        bool alive;
+        int epfd;
 
-	rename_proc("proxyrecv");
-	pthread_detach(pthread_self());
+        if (unlikely(!proxi || !ckp || !gdata)) {
+                LOGEMERG("FATAL: Invalid arguments in proxy_recv");
+                return NULL;
+        }
 
-	proxi->epfd = epfd = epoll_create1(EPOLL_CLOEXEC);
-	if (epfd < 0){
-		LOGEMERG("FATAL: Failed to create epoll in proxyrecv");
-		return NULL;
-	}
+        rename_proc("proxyrecv");
+        pthread_detach(pthread_self());
 
-	if (proxy_alive(ckp, proxi, cs, false))
-		LOGWARNING("Proxy %d:%s connection established", proxi->id, proxi->url);
+        proxi->epfd = epfd = epoll_create1(EPOLL_CLOEXEC);
+        if (epfd < 0) {
+                LOGEMERG("FATAL: Failed to create epoll in proxyrecv");
+                return NULL;
+        }
 
-	alive = proxi->alive;
+        if (proxy_alive(ckp, proxi, cs, false))
+                LOGWARNING("Proxy %d:%s connection established", proxi->id, proxi->url);
 
-	while (42) {
-		bool message = false, hup = false;
-		share_msg_t *share, *tmpshare;
-		notify_instance_t *ni, *tmp;
-		float timeout;
-		time_t now;
-		int ret;
+        alive = proxi->alive;
 
-		subproxy = proxi;
-		if (!proxi->alive) {
-			reconnect_proxy(proxi);
-			while (!subproxies_alive(proxi)) {
-				reconnect_proxy(proxi);
-				if (alive) {
-					reconnect_generator(ckp);
-					LOGWARNING("Proxy %d:%s failed, attempting reconnect",
-						   proxi->id, proxi->url);
-					alive = false;
-				}
-				sleep(5);
-			}
-		}
-		if (!alive) {
-			reconnect_generator(ckp);
-			LOGWARNING("Proxy %d:%s recovered", proxi->id, proxi->url);
-			alive = true;
-		}
+        while (42) {
+                bool message = false, hup = false;
+                share_msg_t *share, *tmpshare;
+                notify_instance_t *ni, *tmp;
+                float timeout;
+                time_t now;
+                int ret;
 
-		now = time(NULL);
+                subproxy = proxi;
+                if (!proxi->alive) {
+                        reconnect_proxy(proxi);
+                        while (!subproxies_alive(proxi)) {
+                                reconnect_proxy(proxi);
+                                if (alive) {
+                                        reconnect_generator(ckp);
+                                        LOGWARNING("Proxy %d:%s failed, attempting reconnect",
+                                                proxi->id, proxi->url);
+                                        alive = false;
+                                }
+                                sleep(5);
+                        }
+                }
+                if (!alive) {
+                        reconnect_generator(ckp);
+                        LOGWARNING("Proxy %d:%s recovered", proxi->id, proxi->url);
+                        alive = true;
+                }
 
-		/* Age old notifications older than 10 mins old */
-		mutex_lock(&gdata->notify_lock);
-		HASH_ITER(hh, gdata->notify_instances, ni, tmp) {
-			if (HASH_COUNT(gdata->notify_instances) < 3)
-				break;
-			if (ni->notify_time < now - 600) {
-				HASH_DEL(gdata->notify_instances, ni);
-				clear_notify(ni);
-			}
-		}
-		mutex_unlock(&gdata->notify_lock);
+                now = time(NULL);
 
-		/* Similary with shares older than 2 mins without response */
-		mutex_lock(&gdata->share_lock);
-		HASH_ITER(hh, gdata->shares, share, tmpshare) {
-			if (share->submit_time < now - 120) {
-				HASH_DEL(gdata->shares, share);
-				free(share);
-			}
-		}
-		mutex_unlock(&gdata->share_lock);
+                /* Age old notifications older than 10 mins old */
+                mutex_lock(&gdata->notify_lock);
+                HASH_ITER(hh, gdata->notify_instances, ni, tmp) {
+                        if (HASH_COUNT(gdata->notify_instances) < 3)
+                                break;
+                        if (ni->notify_time < now - 600) {
+                                HASH_DEL(gdata->notify_instances, ni);
+                                clear_notify(ni);
+                        }
+                }
+                mutex_unlock(&gdata->notify_lock);
 
-		cs = NULL;
-		/* If we don't get an update within 10 minutes the upstream pool
-		 * has likely stopped responding. */
-		ret = epoll_wait(epfd, &event, 1, 600000);
-		if (likely(ret > 0)) {
-			subproxy = event.data.ptr;
-			cs = &subproxy->cs;
-			if (!subproxy->alive) {
-				cs = NULL;
-				continue;
-			}
+                /* Similarly with shares older than 2 mins without response */
+                mutex_lock(&gdata->share_lock);
+                HASH_ITER(hh, gdata->shares, share, tmpshare) {
+                        if (share->submit_time < now - 120) {
+                                HASH_DEL(gdata->shares, share);
+                                free(share);
+                        }
+                }
+                mutex_unlock(&gdata->share_lock);
 
-			/* Serialise messages from here once we have a cs by
-			 * holding the semaphore. */
-			cksem_wait(&cs->sem);
-			/* Process any messages before checking for errors in
-			 * case a message is sent and then the socket
-			 * immediately closed.
-			 */
-			if (event.events & EPOLLIN) {
-				timeout = 30;
-				ret = read_socket_line(cs, &timeout);
-				/* If we are unable to read anything within 30
-				 * seconds at this point after EPOLLIN is set
-				 * then the socket is dead. */
-				if (ret < 1) {
-					LOGNOTICE("Proxy %d:%d %s failed to read_socket_line in proxy_recv",
-						  proxi->id, subproxy->subid, subproxy->url);
-					hup = true;
-				} else {
-					message = true;
-					timeout = 0;
-				}
-			}
-			if (event.events & (EPOLLHUP | EPOLLERR | EPOLLRDHUP)) {
-				LOGNOTICE("Proxy %d:%d %s epoll hangup in proxy_recv",
-					  proxi->id, subproxy->subid, subproxy->url);
-				hup = true;
-			}
-		} else {
-			LOGNOTICE("Proxy %d:%d %s failed to epoll in proxy_recv",
-				  proxi->id, subproxy->subid, subproxy->url);
-			hup = true;
-		}
+                cs = NULL;
+                /* If we don't get an update within 10 minutes the upstream pool
+                 * has likely stopped responding. */
+                timeout = 600;
+                ret = epoll_wait(epfd, &event, 1, timeout * 1000);
+                if (ret < 1) {
+                        if (likely(!ret))
+                                continue;
+                        LOGEMERG("Failed to epoll_wait in proxy_recv");
+                        break;
+                }
 
-		/* Parse any other messages already fully buffered with a zero
-		 * timeout. */
-		while (message || read_socket_line(cs, &timeout) > 0) {
-			message = false;
-			timeout = 0;
-			/* subproxy may have been recycled here if it is not a
-			 * parent and reconnect was issued */
-			if (parse_method(ckp, subproxy, cs->buf))
-				continue;
-			/* If it's not a method it should be a share result */
-			if (!parse_share(gdata, subproxy, cs->buf)) {
-				LOGNOTICE("Proxy %d:%d unhandled stratum message: %s",
-					  subproxy->id, subproxy->subid, cs->buf);
-			}
-		}
+                if (unlikely(!event.data.ptr)) {
+                        LOGWARNING("Invalid event data in proxy_recv");
+                        continue;
+                }
 
-		/* Process hangup only after parsing messages */
-		if (hup)
-			disable_subproxy(gdata, proxi, subproxy);
-		if (cs)
-			cksem_post(&cs->sem);
-	}
+                subproxy = event.data.ptr;
+                cs = &subproxy->cs;
 
-	return NULL;
+                if (unlikely(!cs)) {
+                        LOGWARNING("Invalid connsock in proxy_recv");
+                        continue;
+                }
+
+                if (event.events & EPOLLIN) {
+                        message = true;
+                }
+                if (event.events & (EPOLLHUP | EPOLLERR | EPOLLRDHUP)) {
+                        hup = true;
+                }
+
+                if (message) {
+                        cksem_wait(&cs->sem);
+                        ret = read_socket_line(cs, &timeout);
+                        if (ret > 0) {
+                                LOGDEBUG("Proxy recv received upstream msg: %s", cs->buf);
+                                parse_method(ckp, subproxy, cs->buf);
+                        } else if (ret < 0) {
+                                LOGWARNING("Proxy %d:%s failed to read_socket_line in proxy_recv, attempting reconnect",
+                                        subproxy->id, subproxy->url);
+                                alive = subproxy->alive = false;
+                                Close(cs->fd);
+                                reconnect_generator(ckp);
+                        }
+                        cksem_post(&cs->sem);
+                }
+                if (hup) {
+                        LOGWARNING("Proxy %d:%s HUP in proxy_recv, attempting reconnect",
+                                subproxy->id, subproxy->url);
+                        alive = subproxy->alive = false;
+                        Close(cs->fd);
+                        reconnect_generator(ckp);
+                }
+        }
+        return NULL;
 }
 
 /* Thread that handles all received messages from user proxies */
@@ -3135,37 +3127,46 @@ static void send_subproxystats(gdata_t *gdata, const int sockd)
 
 static void parse_globaluser(ckpool_t *ckp, gdata_t *gdata, const char *buf)
 {
-	char *url, *username, *pass = strdup(buf);
-	char *ptr;
-	int userid;
+        char *url = NULL, *username = NULL, *pass = NULL;
+        char *ptr;
+        int userid;
 
-	if (unlikely(!pass))
-		return;
+        if (unlikely(!buf || !ckp || !gdata))
+                return;
 
-	ptr = strchr(pass, ',');
-	if (unlikely(!ptr)) {
-		free(pass);
-		return;
-	}
-	*ptr = '\0';
-	username = ptr + 1;
+        pass = strdup(buf);
+        if (unlikely(!pass))
+                return;
 
-	ptr = strchr(username, ',');
-	if (unlikely(!ptr)) {
-		free(pass);
-		return;
-	}
-	*ptr = '\0';
-	url = ptr + 1;
+        ptr = strchr(pass, ',');
+        if (unlikely(!ptr)) {
+                free(pass);
+                return;
+        }
+        *ptr = '\0';
+        username = ptr + 1;
 
-	userid = atoi(pass);
-	if (unlikely(userid < 1)) {
-		free(pass);
-		return;
-	}
+        ptr = strchr(username, ',');
+        if (unlikely(!ptr)) {
+                free(pass);
+                return;
+        }
+        *ptr = '\0';
+        url = ptr + 1;
 
-	add_userproxy(ckp, gdata, userid, url, username, pass);
-	free(pass);
+        userid = atoi(pass);
+        if (unlikely(userid < 1)) {
+                free(pass);
+                return;
+        }
+
+        if (unlikely(!url || !username)) {
+                free(pass);
+                return;
+        }
+
+        add_userproxy(ckp, gdata, userid, url, username, pass);
+        free(pass);
 }
 
 static void proxy_loop(proc_instance_t *pi)
