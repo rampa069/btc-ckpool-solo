@@ -3135,44 +3135,37 @@ static void send_subproxystats(gdata_t *gdata, const int sockd)
 
 static void parse_globaluser(ckpool_t *ckp, gdata_t *gdata, const char *buf)
 {
-	char *url, *username, *pass = strdupa(buf);
-	int userid = -1, proxyid = -1;
-	proxy_instance_t *proxy, *tmp;
-	int64_t clientid = -1;
-	bool found = false;
+	char *url, *username, *pass = strdup(buf);
+	char *ptr;
+	int userid;
 
-	sscanf(buf, "%d:%d:%"PRId64":%s", &proxyid, &userid, &clientid, pass);
-	if (unlikely(clientid < 0 || userid < 0 || proxyid < 0)) {
-		LOGWARNING("Failed to parse_globaluser ids from command %s", buf);
+	if (unlikely(!pass))
+		return;
+
+	ptr = strchr(pass, ',');
+	if (unlikely(!ptr)) {
+		free(pass);
 		return;
 	}
-	username = strsep(&pass, ",");
-	if (unlikely(!username)) {
-		LOGWARNING("Failed to parse_globaluser username from command %s", buf);
+	*ptr = '\0';
+	username = ptr + 1;
+
+	ptr = strchr(username, ',');
+	if (unlikely(!ptr)) {
+		free(pass);
+		return;
+	}
+	*ptr = '\0';
+	url = ptr + 1;
+
+	userid = atoi(pass);
+	if (unlikely(userid < 1)) {
+		free(pass);
 		return;
 	}
 
-	LOGDEBUG("Checking userproxy proxy %d user %d:%"PRId64" worker %s pass %s",
-		 proxyid, userid, clientid, username, pass);
-
-	if (unlikely(proxyid >= ckp->proxies)) {
-		LOGWARNING("Trying to find non-existent proxy id %d in parse_globaluser", proxyid);
-		return;
-	}
-
-	mutex_lock(&gdata->lock);
-	url = ckp->proxyurl[proxyid];
-	HASH_ITER(hh, gdata->proxies, proxy, tmp) {
-		if (!strcmp(proxy->auth, username)) {
-			found = true;
-			break;
-		}
-	}
-	mutex_unlock(&gdata->lock);
-
-	if (found)
-		return;
 	add_userproxy(ckp, gdata, userid, url, username, pass);
+	free(pass);
 }
 
 static void proxy_loop(proc_instance_t *pi)
