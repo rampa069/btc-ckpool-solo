@@ -48,12 +48,17 @@ rorx=
 avx1=
 sse4=
 if test x$YASM = xyes; then
-	rorx=`cat /proc/cpuinfo | grep -o -m 1 avx2`
-	if [test x$rorx != xavx2]; then
-		avx1=`cat /proc/cpuinfo | grep -o -m 1 avx`
-		if [test x$avx1 != xavx]; then
-			sse4=`cat /proc/cpuinfo | grep -o -m 1 sse4_1`
+	if test -f /proc/cpuinfo; then
+		rorx=`grep -o -m 1 avx2 /proc/cpuinfo 2>/dev/null || echo ""`
+		if test x$rorx != xavx2; then
+			avx1=`grep -o -m 1 avx /proc/cpuinfo 2>/dev/null || echo ""`
+			if test x$avx1 != xavx; then
+				sse4=`grep -o -m 1 sse4_1 /proc/cpuinfo 2>/dev/null || echo ""`
+			fi
 		fi
+	else
+		# Fallback for non-Linux systems
+		AC_MSG_WARN([Cannot detect CPU features - /proc/cpuinfo not available])
 	fi
 fi
 AM_CONDITIONAL([HAVE_AVX2], [test x$rorx = xavx2])
