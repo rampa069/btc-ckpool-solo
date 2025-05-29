@@ -34,6 +34,8 @@
 
 #ifdef __APPLE__
 #include "macos_sem.h"
+#else
+#include <sys/epoll.h>
 #endif
 
 #include "libckpool.h"

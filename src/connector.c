@@ -15,6 +15,10 @@
 #include <string.h>
 #include <unistd.h>
 
+#ifndef __APPLE__
+#include <sys/epoll.h>
+#endif
+
 #include "ckpool.h"
 #include "libckpool.h"
 #include "uthash.h"
