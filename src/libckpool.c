@@ -13,6 +13,7 @@
 
 #ifndef __APPLE__
 #include <sys/epoll.h>
+#include <sys/prctl.h>
 #endif
 
 #include "config.h"
@@ -1001,16 +1002,12 @@ int wait_close(int sockd, int timeout)
 	struct pollfd sfd;
 	int ret;
 
-	if (unlikely(sockd < 0))
-		return -1;
 	sfd.fd = sockd;
-	sfd.events = POLLRDHUP;
-	sfd.revents = 0;
-	timeout *= 1000;
+	sfd.events = POLLHUP;
 	ret = poll(&sfd, 1, timeout);
-	if (ret < 1)
-		return 0;
-	return sfd.revents & (POLLHUP | POLLRDHUP | POLLERR);
+	if (ret == 1)
+		return 1;
+	return 0;
 }
 
 /* Emulate a select read wait for high fds that select doesn't support. */
